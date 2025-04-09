@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/tkircsi/go-agent/agent"
@@ -25,25 +27,27 @@ func main() {
 
 	// Create a new agent
 	agent := agent.NewAgent(apiKey)
-
-	// Example conversation
 	ctx := context.Background()
 
-	// Test messages
-	messages := []string{
-		"Hello! Can you help me calculate 2 + 2?",
-		// "What about 5 * 5?",
-		// "Tell me about yourself",
-		"Calculate 10 / 5 and 20 / 4",
+	// Create a reader for stdin
+	reader := bufio.NewReader(os.Stdin)
+
+	// Read user input from stdin
+	fmt.Print("Enter your message: ")
+	userMessage, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatalf("Error reading input: %v", err)
 	}
 
-	for _, msg := range messages {
-		fmt.Printf("\nUser: %s\n", msg)
-		response, err := agent.ProcessMessage(ctx, msg)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-		fmt.Printf("Assistant: %s\n", response)
+	// Trim whitespace and newlines
+	userMessage = strings.TrimSpace(userMessage)
+
+	// Process the message and get response
+	response, err := agent.ProcessMessage(ctx, userMessage)
+	if err != nil {
+		log.Fatalf("Error processing message: %v", err)
 	}
+
+	// Print the response
+	fmt.Printf("Assistant: %s\n", response)
 }

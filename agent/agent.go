@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
-	"strings"
 
+	"github.com/Knetic/govaluate"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -22,13 +21,13 @@ func NewAgent(apiKey string) *Agent {
 				Type: openai.ToolTypeFunction,
 				Function: &openai.FunctionDefinition{
 					Name:        "calculator",
-					Description: "Calculate the result of a basic arithmetic expression",
+					Description: "Calculate the result of a mathematical expression",
 					Parameters: map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"expression": map[string]any{
 								"type":        "string",
-								"description": "The arithmetic expression to calculate (e.g., '2 + 2', '5 * 5')",
+								"description": "The mathematical expression to calculate (e.g., '2 + 2', '10 / 2 * 5')",
 							},
 						},
 						"required": []string{"expression"},
@@ -44,66 +43,50 @@ func NewAgent(apiKey string) *Agent {
 					return nil, err
 				}
 
-				// Split the expression into parts
-				parts := strings.FieldsFunc(input.Expression, func(r rune) bool {
-					return r == '+' || r == '-' || r == '*' || r == '/'
-				})
-
-				if len(parts) != 2 {
+				// Use Go's expression evaluator
+				expr, err := govaluate.NewEvaluableExpression(input.Expression)
+				if err != nil {
 					return nil, fmt.Errorf("invalid expression: %s", input.Expression)
 				}
 
-				// Parse numbers
-				a, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+				result, err := expr.Evaluate(nil)
 				if err != nil {
-					return nil, err
-				}
-				b, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("error evaluating expression: %v", err)
 				}
 
-				// Find the operator
-				operator := ""
-				if strings.Contains(input.Expression, "+") {
-					operator = "+"
-				} else if strings.Contains(input.Expression, "-") {
-					operator = "-"
-				} else if strings.Contains(input.Expression, "*") {
-					operator = "*"
-				} else if strings.Contains(input.Expression, "/") {
-					operator = "/"
-				}
-
-				// Perform calculation
-				var result float64
-				switch operator {
-				case "+":
-					result = a + b
-				case "-":
-					result = a - b
-				case "*":
-					result = a * b
-				case "/":
-					if b == 0 {
-						return nil, fmt.Errorf("division by zero")
-					}
-					result = a / b
+				// Format the result
+				var formattedResult string
+				switch v := result.(type) {
+				case float64:
+					formattedResult = fmt.Sprintf("%.2f", v)
+				case int:
+					formattedResult = fmt.Sprintf("%d", v)
 				default:
-					return nil, fmt.Errorf("unsupported operator")
+					formattedResult = fmt.Sprintf("%v", v)
 				}
 
 				return map[string]any{
-					"result": fmt.Sprintf("%.2f", result),
+					"result": formattedResult,
 				}, nil
 			},
+		},
+	}
+
+	// Initialize messages with system message
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role: openai.ChatMessageRoleSystem,
+			Content: `You are a calculator agent. Your task is to:
+1. If the user asks for a calculation or there is a mathematical expression to evaluate, use the calculator tool to perform the calculation.
+2. If the user's message doesn't contain any calculation or mathematical expression, respond with "There is nothing to calculate in your message."
+3. Keep your responses focused on calculations and mathematical operations.`,
 		},
 	}
 
 	return &Agent{
 		client:   client,
 		tools:    tools,
-		messages: []openai.ChatCompletionMessage{},
+		messages: messages,
 	}
 }
 
@@ -125,7 +108,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, userMessage string) (string,
 	resp, err := a.client.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Model:    openai.GPT4o,
+			Model:    "gpt-4-turbo-preview",
 			Messages: a.messages,
 			Tools:    openaiTools,
 		},
@@ -183,7 +166,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, userMessage string) (string,
 		finalResp, err := a.client.CreateChatCompletion(
 			ctx,
 			openai.ChatCompletionRequest{
-				Model:    openai.GPT4o,
+				Model:    "gpt-4-turbo-preview",
 				Messages: a.messages,
 			},
 		)
